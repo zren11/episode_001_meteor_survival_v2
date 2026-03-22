@@ -10,6 +10,12 @@ public class TrainingConfig : ScriptableObject
     public float episodeTimeCap = 60f;
     public float arenaHalfSize = 10f;
 
+    [Header("HP Drain")]
+    // HP lost per second passively; Agent restores full HP on eating food
+    public float hpDrainPerSecond = 5f;
+    // Reward penalty applied at the same rate as HP drain
+    public float hpDrainPenaltyPerSecond = 0.05f;
+
     [Header("Food")]
     public float spawnInterval = 3f;
     public int maxConcurrentFoods = 5;
@@ -22,7 +28,8 @@ public class TrainingConfig : ScriptableObject
     [Header("Reward")]
     public float survivalRewardPerSecond = 0.01f;
     public float idlePenaltyPerSecond = 0f;
-    public float outOfBoundsPenalty = -1f;
+    public float cliffPenalty = -1f;
+    public float cliffFallThresholdY = -1f;
 
     [Header("Stage")]
     public int currentStage = 1;

@@ -5,13 +5,16 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 // Attach to Agent GameObject.
-// Requires: Rigidbody, Collider (non-trigger), BehaviorParameters, DecisionRequester
+// Requires: Rigidbody (Y-axis NOT frozen), Collider (non-trigger),
+//           BehaviorParameters, DecisionRequester,
+//           RayPerceptionSensorComponent3D x2 (ForwardRaySensor, DownwardRaySensor)
 //
-// Observation space: 7 floats
+// Observation space: 8 floats (Vector Observation Size = 8)
 //   [0-1] velocity (x, z) normalized by moveSpeed
 //   [2-3] forward direction (x, z)
 //   [4-5] relative position to arena center, normalized by arenaHalfSize
 //   [6]   normalized episode time
+//   [7]   normalized HP (currentHp / maxHp)
 //
 // Action space: 2 continuous
 //   [0] forward/backward (-1 to 1)
@@ -59,18 +62,19 @@ public class SurvivalAgent : Agent
     public override void CollectObservations(VectorSensor sensor)
     {
         Vector3 vel = rb.linearVelocity;
-        sensor.AddObservation(vel.x / config.moveSpeed);       // [0]
-        sensor.AddObservation(vel.z / config.moveSpeed);       // [1]
+        sensor.AddObservation(vel.x / config.moveSpeed);                  // [0]
+        sensor.AddObservation(vel.z / config.moveSpeed);                  // [1]
 
-        sensor.AddObservation(transform.forward.x);            // [2]
-        sensor.AddObservation(transform.forward.z);            // [3]
+        sensor.AddObservation(transform.forward.x);                       // [2]
+        sensor.AddObservation(transform.forward.z);                       // [3]
 
         Vector3 center = arenaCenter != null ? arenaCenter.position : Vector3.zero;
         Vector3 rel = transform.position - center;
-        sensor.AddObservation(rel.x / config.arenaHalfSize);   // [4]
-        sensor.AddObservation(rel.z / config.arenaHalfSize);   // [5]
+        sensor.AddObservation(rel.x / config.arenaHalfSize);              // [4]
+        sensor.AddObservation(rel.z / config.arenaHalfSize);              // [5]
 
-        sensor.AddObservation(episodeTimer / config.episodeTimeCap); // [6]
+        sensor.AddObservation(episodeTimer / config.episodeTimeCap);      // [6]
+        sensor.AddObservation(currentHp / config.maxHp);                  // [7]
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -84,6 +88,10 @@ public class SurvivalAgent : Agent
         rb.MoveRotation(rb.rotation * Quaternion.Euler(0f, turn * config.turnSpeed * dt, 0f));
         rb.MovePosition(rb.position + transform.forward * moveForward * config.moveSpeed * dt);
 
+        // Passive HP drain + reward penalty
+        currentHp -= config.hpDrainPerSecond * dt;
+        AddReward(-config.hpDrainPenaltyPerSecond * dt);
+
         // Survival reward
         AddReward(config.survivalRewardPerSecond * dt);
 
@@ -91,15 +99,15 @@ public class SurvivalAgent : Agent
         if (config.idlePenaltyPerSecond > 0f && Mathf.Abs(moveForward) < 0.1f)
             AddReward(-config.idlePenaltyPerSecond * dt);
 
-        // Out of bounds → punish and end
-        if (IsOutOfBounds())
+        // Cliff / fall detection
+        if (IsFallingOffCliff())
         {
-            AddReward(config.outOfBoundsPenalty);
+            AddReward(config.cliffPenalty);
             EndEpisode();
             return;
         }
 
-        // HP check (structure ready for Stage 2 damage)
+        // HP depleted
         if (currentHp <= 0f)
         {
             EndEpisode();
@@ -127,15 +135,14 @@ public class SurvivalAgent : Agent
         if (food != null)
         {
             AddReward(config.foodEatReward);
+            currentHp = config.maxHp;   // Restore full HP on eating food
             foodSpawner.EatFood(food);
         }
     }
 
-    private bool IsOutOfBounds()
+    // Agent has fallen below the arena floor — cliff detected
+    private bool IsFallingOffCliff()
     {
-        Vector3 center = arenaCenter != null ? arenaCenter.position : Vector3.zero;
-        Vector3 rel = transform.position - center;
-        float half = config.arenaHalfSize;
-        return Mathf.Abs(rel.x) > half || Mathf.Abs(rel.z) > half;
+        return transform.position.y < config.cliffFallThresholdY;
     }
 }
